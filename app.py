@@ -1,7 +1,7 @@
 """v2: ホエールウォッチングの計画アプリ(Streamlit アプリ本体)
 
 起動:  streamlit run app.py
-読むファイル: data/pred_month.csv と data/presence.csv(pipeline/step6_predict.py が作る)
+読むファイル: data/pred_month.csv、data/presence.csv、data/cell_points.csv(pipeline/step6_predict.py が作る)
 画面の言葉は、サイドバーの「Language / 言語」で英語と日本語を切り替えられる。
 """
 import datetime as dt
@@ -11,10 +11,22 @@ import pandas as pd
 import streamlit as st
 from streamlit_folium import st_folium
 
-from whale_lib import (CITIES, FORECAST_DAYS, fetch_conditions,
-                       in_forecast_window, month_weights, rank_spots, track_record)
+from whale_lib import (CITIES, FORECAST_DAYS, fetch_conditions, in_forecast_window,
+                       month_weights, nearest_city, rank_spots, track_record)
 
-st.set_page_config(page_title="Whale Watching in Australia", layout="wide")
+st.set_page_config(page_title="Whale Watching in Australia", layout="wide",
+                   initial_sidebar_state="collapsed")
+
+# スマホ(幅640px以下)では、タイトルを小さく、上の余白を狭くする
+st.markdown("""<style>
+@media (max-width: 640px) {
+  h1 { font-size: 1.5rem !important; line-height: 1.3 !important; }
+  .block-container { padding-top: 1.5rem !important; }
+}
+</style>""", unsafe_allow_html=True)
+
+MAP_HEIGHT = 380   # 地図の高さ(px)。幅は画面に合わせる
+AUSTRALIA = [[-44, 112], [-10, 154]]   # 月ごとの地図で、最初に収める範囲
 
 # ---------------------------------------------------------------
 # 画面に出す言葉(英語と日本語)。言葉を直したいときは、ここだけを直す
@@ -22,6 +34,8 @@ st.set_page_config(page_title="Whale Watching in Australia", layout="wide")
 TEXT = {
     "English": {
         "title": "Plan Your Whale Watching in Australia!",
+        "intro": "Find when and where humpback whales are easiest to spot along the Australian coast.",
+        "how_to": "How to read the numbers",
         "mode": "Mode",
         "mode_month": "Explore by month",
         "mode_trip": "Plan a trip",
@@ -66,6 +80,8 @@ TEXT = {
     },
     "日本語": {
         "title": "オーストラリアでのホエールウォッチングを計画しよう！",
+        "intro": "オーストラリアの海岸で、ザトウクジラが見つけやすい時期と場所を調べられます。",
+        "how_to": "数字の見方",
         "mode": "表示",
         "mode_month": "月ごとに見る",
         "mode_trip": "旅行を計画する",
@@ -121,6 +137,14 @@ def load_presence() -> pd.DataFrame:
     return pd.read_csv("data/presence.csv")
 
 
+@st.cache_data
+def load_points() -> pd.DataFrame:
+    try:
+        return pd.read_csv("data/cell_points.csv")
+    except FileNotFoundError:            # まだ無いときは、マス目の中心に印を置く
+        return pd.DataFrame(columns=["glat", "glon", "plat", "plon"])
+
+
 @st.cache_data(ttl=3600)
 def get_conditions(lat, lon, start, end):
     try:
@@ -129,10 +153,23 @@ def get_conditions(lat, lon, start, end):
         return None
 
 
+def with_points(df, points):
+    """地図に印を置く位置(plat, plon)を付ける。記録の平均位置がなければマス目の中心。"""
+    df = df.merge(points, on=["glat", "glon"], how="left")
+    df["plat"] = df["plat"].fillna(df["glat"])
+    df["plon"] = df["plon"].fillna(df["glon"])
+    return df
+
+
+def new_map(location, zoom):
+    # 地図の上でマウスのホイールを回しても、ページがスクロールするようにする
+    return folium.Map(location=location, zoom_start=zoom, scrollWheelZoom=False)
+
+
 def add_cells(m, df, value_col, label):
     for _, r in df.iterrows():
         folium.CircleMarker(
-            location=[r["glat"], r["glon"]],
+            location=[r["plat"], r["plon"]],
             radius=3 + r[value_col] / 10,
             color="#0d6b78", fill=True, fill_opacity=0.5,
             tooltip=label(r),
@@ -146,7 +183,7 @@ def add_numbers(m, df):
         html = ('<div style="width:22px;height:22px;border-radius:11px;background:#0b3d45;'
                 'color:#fff;font:bold 12px sans-serif;display:flex;align-items:center;'
                 f'justify-content:center;border:2px solid #fff">{int(r["rank"])}</div>')
-        folium.Marker([r["glat"], r["glon"]],
+        folium.Marker([r["plat"], r["plon"]],
                       icon=folium.DivIcon(html=html, icon_size=(22, 22), icon_anchor=(11, 11))
                       ).add_to(m)
     return m
@@ -162,36 +199,43 @@ def with_record(df, months, presence):
 
 pred = load_pred()
 presence = load_presence()
-lang = st.sidebar.radio("Language / 言語", ["English", "日本語"], horizontal=True)
+points = load_points()
+lang = st.radio("Language / 言語", ["English", "日本語"], horizontal=True)
 T = TEXT[lang]
 
 st.title(T["title"])
-mode = st.sidebar.radio(T["mode"], ["month", "trip"],
+st.caption(T["intro"])
+mode = st.radio(T["mode"], ["month", "trip"], horizontal=True,
                         format_func=lambda k: T["mode_month"] if k == "month" else T["mode_trip"],
                         key="mode")
 
 if mode == "month":
-    month = st.sidebar.selectbox(T["month"], list(range(1, 13)), index=6,
+    month = st.selectbox(T["month"], list(range(1, 13)), index=6,
                                  format_func=T["month_name"], key="month")
     sub, n, y0, y1 = with_record(pred[pred["month"] == month], [month], presence)
+    sub = with_points(sub, points)
     top = sub.sort_values("index", ascending=False).head(10).reset_index(drop=True)
     top["rank"] = top.index + 1
-    m = folium.Map(location=[-28, 134], zoom_start=4)
+    top["near"] = [nearest_city(a, b) for a, b in zip(top["plat"], top["plon"])]
+    m = new_map([-28, 134], 4)
+    m.fit_bounds(AUSTRALIA)
     add_cells(m, sub[sub["index"] >= 5], "index", T["tip_month"])  # 指数5未満は省く
     add_numbers(m, top)
-    st_folium(m, width=700, height=520, returned_objects=[])
+    st_folium(m, use_container_width=True, height=MAP_HEIGHT, returned_objects=[])
     st.subheader(T["top10"](month))
-    st.dataframe(top[["rank", "index", "years", "glat", "glon"]].rename(columns=T["cols"]),
+    st.dataframe(top[["rank", "near", "index", "years"]].rename(columns=T["cols"]),
                  hide_index=True)
-    st.caption(T["rank_note"](T["what_month"]))
-    st.caption(T["record_note"](n, y0, y1))
+    with st.expander(T["how_to"]):
+        st.write(T["rank_note"](T["what_month"]))
+        st.write(T["record_note"](n, y0, y1))
+        st.write(T["note"])
 
 else:
-    city = st.sidebar.selectbox(T["base_city"], list(CITIES), format_func=T["city"],
+    city = st.selectbox(T["base_city"], list(CITIES), format_func=T["city"],
                                 key="city")
-    max_km = st.sidebar.slider(T["max_km"], 50, 1500, 300, step=50, key="max_km")
+    max_km = st.slider(T["max_km"], 50, 1500, 300, step=50, key="max_km")
     today = dt.date.today()
-    dates = st.sidebar.date_input(
+    dates = st.date_input(
         T["dates"], (today + dt.timedelta(days=3), today + dt.timedelta(days=9)), key="dates")
     if not isinstance(dates, (tuple, list)) or len(dates) != 2:
         st.info(T["pick_two"])
@@ -205,20 +249,27 @@ else:
         st.warning(T["no_spots"])
         st.stop()
 
-    m = folium.Map(location=[lat0, lon0], zoom_start=6)
+    m = new_map([lat0, lon0], 6)
     folium.Marker([lat0, lon0], tooltip=T["city"](city)).add_to(m)
     top, n, y0, y1 = with_record(top, list(weights), presence)
+    top = with_points(top, points)
     top["rank"] = top.index + 1
     add_cells(m, top, "score", T["tip_trip"])
     add_numbers(m, top)
-    st_folium(m, width=700, height=520, returned_objects=[])
+    # 拠点の都市と上位10か所が、すべて画面に収まるように縮尺を合わせる
+    lats = list(top["plat"]) + [lat0]
+    lons = list(top["plon"]) + [lon0]
+    m.fit_bounds([[min(lats), min(lons)], [max(lats), max(lons)]], padding=(20, 20))
+    st_folium(m, use_container_width=True, height=MAP_HEIGHT, returned_objects=[])
 
     st.subheader(T["best"])
     cols = {**T["cols"], "km": T["km_col"](T["city"](city))}   # 距離の列名に拠点の都市名を入れる
-    st.dataframe(top[["rank", "near", "score", "years", "km", "glat", "glon"]]
+    st.dataframe(top[["rank", "near", "score", "years", "km"]]
                     .rename(columns=cols), hide_index=True)
-    st.caption(T["rank_note"](T["what_trip"]))
-    st.caption(T["record_note"](n, y0, y1))
+    with st.expander(T["how_to"]):
+        st.write(T["rank_note"](T["what_trip"]))
+        st.write(T["record_note"](n, y0, y1))
+        st.write(T["note"])
 
     st.subheader(T["forecast"])
     if in_forecast_window(start, today):
@@ -239,4 +290,3 @@ else:
     else:
         st.info(T["later"])
 
-st.caption(T["note"])

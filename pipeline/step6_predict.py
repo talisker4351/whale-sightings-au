@@ -8,6 +8,7 @@
     python pipeline/step6_predict.py logit    # モデルを指定する
 
 出力:
+    data/cell_points.csv glat, glon, plat, plon(マス目の中の実際の記録の平均位置。地図に印を置く場所)
     data/presence.csv    glat, glon, year, month(記録があったマス・年・月。アプリの「過去の実績」に使う)
     data/pred_month.csv  glat, glon, month, p, index, n_records
         p      : モデルの出力(相対的な見やすさ。遭遇確率そのものではない)
@@ -60,6 +61,12 @@ def main(forced: str | None = None) -> None:
     pres = (s[s["year"].between(YEAR_MIN, last_full)]
               [["glat", "glon", "year", "month"]].drop_duplicates())
     pres.to_csv(DATA / "presence.csv", index=False)
+
+    # 地図の印は、マス目の中心ではなく、実際の記録の平均位置に置く(中心だと陸の上に出ることがあるため)
+    pts = (s.groupby(["glat", "glon"])[["lat", "lon"]].mean().round(4)
+             .rename(columns={"lat": "plat", "lon": "plon"}).reset_index())
+    pts.to_csv(DATA / "cell_points.csv", index=False)
+    print("保存:", DATA / "cell_points.csv", len(pts), "行")
     print("保存:", DATA / "presence.csv", len(pres), "行", f"({YEAR_MIN}〜{last_full}年)")
     print("保存:", DATA / "pred_month.csv", len(out), "行")
 

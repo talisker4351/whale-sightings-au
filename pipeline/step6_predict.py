@@ -1,0 +1,68 @@
+"""v1b→v2: マス目×月ごとの予測を作り、アプリ用に保存する。
+
+テストのAUCが最も高いモデルを使う(ベースラインに負けたら警告する)。
+予測には、水温の平年値(sst_clim.csv)を使う。
+
+使い方:
+    python pipeline/step6_predict.py          # 自動で選ぶ
+    python pipeline/step6_predict.py logit    # モデルを指定する
+
+出力:
+    data/presence.csv    glat, glon, year, month(記録があったマス・年・月。アプリの「過去の実績」に使う)
+    data/pred_month.csv  glat, glon, month, p, index, n_records
+        p      : モデルの出力(相対的な見やすさ。遭遇確率そのものではない)
+        index  : 全体の最大を100とした指数(アプリの表示用)
+"""
+import json
+import sys
+from pathlib import Path
+
+import joblib
+import pandas as pd
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from config import DATA, FEATURES, MODELS, REPORTS, YEAR_MIN
+from features import add_features  # noqa: E402  (同じフォルダ)
+
+
+def choose_model(metrics: dict, forced: str | None) -> str:
+    if forced:
+        return forced
+    cands = {k: metrics[f"auc_{k}"] for k in ("logit", "lgbm") if f"auc_{k}" in metrics}
+    best = max(cands, key=cands.get)
+    if cands[best] <= metrics["auc_baseline"]:
+        print("警告: どのモデルもベースラインに勝っていません。設計を見直してください。")
+    return best
+
+
+def main(forced: str | None = None) -> None:
+    metrics = json.loads((REPORTS / "metrics.json").read_text())
+    name = choose_model(metrics, forced)
+    model = joblib.load(MODELS / f"{name}.joblib")
+    print("使うモデル:", name)
+
+    clim = pd.read_csv(DATA / "sst_clim.csv").dropna(subset=["sst"])
+    grid = add_features(clim)
+    grid["p"] = model.predict_proba(grid[FEATURES])[:, 1]
+    grid["index"] = (grid["p"] / grid["p"].max() * 100).round(1)
+
+    counts = pd.read_csv(DATA / "grid_month.csv").rename(columns={"n": "n_records"})
+    grid = grid.merge(counts, on=["glat", "glon", "month"], how="left")
+    grid["n_records"] = grid["n_records"].fillna(0).astype(int)
+
+    out = grid[["glat", "glon", "month", "p", "index", "n_records"]]
+    out.to_csv(DATA / "pred_month.csv", index=False)
+
+    # 過去の実績: どのマスで、どの年のどの月に記録があったか。
+    # いちばん新しい年は途中で、記録の登録も追いついていないので除く(全部そろった年だけを使う)
+    s = pd.read_csv(DATA / "sightings.csv")
+    last_full = int(s["year"].max()) - 1
+    pres = (s[s["year"].between(YEAR_MIN, last_full)]
+              [["glat", "glon", "year", "month"]].drop_duplicates())
+    pres.to_csv(DATA / "presence.csv", index=False)
+    print("保存:", DATA / "presence.csv", len(pres), "行", f"({YEAR_MIN}〜{last_full}年)")
+    print("保存:", DATA / "pred_month.csv", len(out), "行")
+
+
+if __name__ == "__main__":
+    main(sys.argv[1] if len(sys.argv) > 1 else None)

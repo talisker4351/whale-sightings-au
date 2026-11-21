@@ -1,0 +1,6 @@
+data/raw/
+data/sightings.csv
+data/sst_cell_month.csv
+data/dataset.csv
+__pycache__/
+.ipynb_checkpoints/

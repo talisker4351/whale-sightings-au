@@ -1,0 +1,8 @@
+pandas>=2.0
+numpy
+scikit-learn
+lightgbm
+xarray
+netCDF4
+joblib
+matplotlib

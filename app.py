@@ -2,13 +2,15 @@
 
 起動:  streamlit run app.py
 読むファイル: data/pred_month.csv、data/presence.csv、data/cell_points.csv(pipeline/step6_predict.py が作る)
-画面の言葉は、サイドバーの「Language / 言語」で英語と日本語を切り替えられる。
+画面の言葉は、画面上部の「Language / 言語」で英語と日本語を切り替えられる。
 """
 import datetime as dt
+import json
 
 import folium
 import pandas as pd
 import streamlit as st
+from jinja2 import Template
 from streamlit_folium import st_folium
 
 from whale_lib import (CITIES, FORECAST_DAYS, fetch_conditions, in_forecast_window,
@@ -49,32 +51,34 @@ TEXT = {
         "pick_two": "Pick both a start date and an end date.",
         "no_spots": "No spots within that distance. Try a larger distance.",
         "tip_trip": lambda r: f"Score {r['score']:.0f} | records in {r['years']} years | {r['km']:.0f} km from base",
-        "km_col": lambda c: f"Distance from {c} (km)",
+        "km_col": lambda c: f"km from {c}",
         "rank_note": lambda what: (f"Spots are ranked by a {what} that predicts how easy it is to spot whales at "
                                    "that time, based on past sightings, season and sea surface temperature. "
-                                   "\"Years with records\" is the number of years with at least one actual "
+                                   "\"Years seen\" is the number of years with at least one actual "
                                    "sighting at that spot and time. Spots that rank high on both are the "
                                    "most reliable picks."),
         "what_month": "spotting index", "what_trip": "score",
-        "record_note": lambda n, y0, y1: (f"Years with records: in how many of the {n} years from {y0} to {y1} "
+        "record_note": lambda n, y0, y1: (f"Years seen: in how many of the {n} years from {y0} to {y1} "
                                           "at least one sighting was recorded at that spot in those months."),
         "best": "Best spots for your trip",
         "forecast": "Sea conditions forecast (top 3 spots)",
         "near": lambda i, near: f"**{i}. near {near}**",
         "no_forecast": "Forecast is unavailable right now.",
         "wave_point": lambda p: f"Wave data from the nearest sea point ({p[0]}, {p[1]}).",
-        "rule": "Outlook is a rule of thumb from wave height and wind, not a validated model.",
+        "rule": ("Wave and wind are daily maximums. Outlook is a rule of thumb from wave height "
+                 "and wind, not a validated model."),
         "later": f"Forecasts appear when your trip starts within {FORECAST_DAYS} days.",
-        "note": ("Index and score show the relative ease of spotting whales estimated from past "
-                 "sighting records and sea surface temperature. They are not encounter probabilities. "
+        "note": ("Index (0-100, best spot of the month = 100) and score show the relative ease "
+                 "of spotting whales estimated from past sighting records and sea surface temperature. They are not encounter probabilities. "
                  "Records cluster where observers are. Sources: Atlas of Living Australia (sightings), "
                  "NOAA OISST v2.1 (sea surface temperature), Open-Meteo (forecasts)."),
-        "cols": {"rank": "Rank", "years": "Years with records",
+        # 列名はスマホの幅に収まるよう短くする(意味は「数字の見方」で説明する)
+        "cols": {"rank": "Rank", "years": "Years seen",
                  "glat": "Latitude", "glon": "Longitude",
-                 "index": "Spotting index (0-100)", "n_records": "Past records",
-                 "near": "Nearest town", "score": "Score", "km": "Distance (km)",
-                 "records": "Past records", "date": "Date", "wave_m": "Max wave (m)",
-                 "swell_m": "Max swell (m)", "wind_kmh": "Max wind (km/h)", "outlook": "Outlook"},
+                 "index": "Index", "n_records": "Records",
+                 "near": "Town", "score": "Score", "km": "km",
+                 "records": "Records", "date": "Date", "wave_m": "Wave (m)",
+                 "swell_m": "Swell (m)", "wind_kmh": "Wind (km/h)", "outlook": "Outlook"},
         "outlook": {"Good": "Good", "Fair": "Fair", "Poor": "Poor", "No data": "No data"},
         "city": lambda c: c,
     },
@@ -88,36 +92,37 @@ TEXT = {
         "month": "月",
         "month_name": lambda m: f"{m}月",
         "top10": lambda m: f"{m}月の見やすい場所 トップ10",
-        "tip_month": lambda r: f"指数 {r['index']:.0f}|記録があった年 {r['years']}",
+        "tip_month": lambda r: f"指数 {r['index']:.0f}|記録年 {r['years']}",
         "base_city": "拠点の都市",
         "max_km": "拠点からの最大距離(km、直線)",
         "dates": "旅行の期間",
         "pick_two": "開始日と終了日の両方を選んでください。",
         "no_spots": "その距離の範囲に候補がありません。距離を広げてください。",
-        "tip_trip": lambda r: f"スコア {r['score']:.0f}|記録があった年 {r['years']}|拠点から{r['km']:.0f} km",
-        "km_col": lambda c: f"{c}からの距離(km)",
+        "tip_trip": lambda r: f"スコア {r['score']:.0f}|記録年 {r['years']}|拠点から{r['km']:.0f} km",
+        "km_col": lambda c: f"{c}から(km)",
         "rank_note": lambda what: (f"順位は、過去の目撃記録・季節・海面水温から、その時期のクジラの見つけやすさを"
-                                   f"予測した{what}で決めています。「記録があった年」は、その場所・時期に実際に"
+                                   f"予測した{what}で決めています。「記録年」は、その場所・時期に実際に"
                                    "記録があった年の数です。両方が高い場所ほど、確かな候補です。"),
         "what_month": "見やすさ指数", "what_trip": "スコア",
-        "record_note": lambda n, y0, y1: (f"記録があった年: {y0}〜{y1}年の{n}年間のうち、その場所・その時期に"
+        "record_note": lambda n, y0, y1: (f"記録年: {y0}〜{y1}年の{n}年間のうち、その場所・その時期に"
                                           "1件でも目撃記録があった年の数です。"),
         "best": "旅行におすすめの場所",
         "forecast": "海の状況の予報(上位3か所)",
         "near": lambda i, near: f"**{i}. {near} 付近**",
         "no_forecast": "現在、予報を取得できません。",
         "wave_point": lambda p: f"波のデータは、最も近い海上の地点({p[0]}, {p[1]})のものです。",
-        "rule": "見通しは、波の高さと風からの目安です。検証したモデルではありません。",
+        "rule": "波と風は、その日の最大値です。見通しは、波の高さと風からの目安です。検証したモデルではありません。",
         "later": f"出発が{FORECAST_DAYS}日以内になると、予報が表示されます。",
-        "note": ("指数とスコアは、過去の目撃記録と海面水温から推定した、クジラの見つけやすさの目安です。"
+        "note": ("指数(0〜100。その月にいちばん見つけやすい場所が100)とスコアは、"
+                 "過去の目撃記録と海面水温から推定した、クジラの見つけやすさの目安です。"
                  "遭遇する確率ではありません。記録は観察する人が多い場所に集まりやすい点に注意してください。"
                  "出典: Atlas of Living Australia(目撃記録)、NOAA OISST v2.1(海面水温)、Open-Meteo(予報)。"),
-        "cols": {"rank": "順位", "years": "記録があった年",
+        "cols": {"rank": "順位", "years": "記録年",
                  "glat": "緯度", "glon": "経度",
-                 "index": "見やすさ指数(0〜100)", "n_records": "過去の記録数",
-                 "near": "近くの町", "score": "スコア", "km": "距離(km)",
-                 "records": "過去の記録数", "date": "日付", "wave_m": "最大波高(m)",
-                 "swell_m": "最大うねり(m)", "wind_kmh": "最大風速(km/h)", "outlook": "見通し"},
+                 "index": "指数", "n_records": "記録数",
+                 "near": "近くの町", "score": "スコア", "km": "km",
+                 "records": "記録数", "date": "日付", "wave_m": "波(m)",
+                 "swell_m": "うねり(m)", "wind_kmh": "風(km/h)", "outlook": "見通し"},
         "outlook": {"Good": "良い", "Fair": "ふつう", "Poor": "悪い", "No data": "データなし"},
         "city": lambda c: {"Sydney": "シドニー", "Brisbane": "ブリスベン", "Hervey Bay": "ハービーベイ",
                            "Cairns": "ケアンズ", "Melbourne": "メルボルン", "Hobart": "ホバート",
@@ -162,8 +167,45 @@ def with_points(df, points):
 
 
 def new_map(location, zoom):
-    # 地図の上でマウスのホイールを回しても、ページがスクロールするようにする
-    return folium.Map(location=location, zoom_start=zoom, scrollWheelZoom=False)
+    # scrollWheelZoom=False: 地図の上でマウスのホイールを回しても、ページがスクロールする
+    # zoomSnap=0.25: 縮尺を細かく選べるようにして、狭いスマホの画面でも範囲がぴったり収まるようにする
+    return folium.Map(location=location, zoom_start=zoom, scrollWheelZoom=False,
+                      zoomSnap=0.25, zoomDelta=0.5)
+
+
+class Refit(folium.MacroElement):
+    """地図の幅が決まった後に、もう一度「範囲に合わせて縮尺を決め直す」JavaScript を足す。
+
+    スマホでは、地図を作った瞬間の幅と、実際に表示される幅がずれるため、
+    fit_bounds だけでは端の印が画面からはみ出す。少し待ってから合わせ直す。
+    """
+    _template = Template("""
+{% macro script(this, kwargs) %}
+(function () {
+  var target = {{ this._parent.get_name() }};
+  var area = {{ this.area }};
+  function refit() {
+    target.invalidateSize();
+    target.fitBounds(area, {padding: [{{ this.pad }}, {{ this.pad }}]});
+  }
+  setTimeout(refit, 150);
+  setTimeout(refit, 700);
+  window.addEventListener("resize", refit);
+})();
+{% endmacro %}
+""")
+
+    def __init__(self, bounds, pad=10):
+        super().__init__()
+        self._name = "Refit"
+        self.area = json.dumps([[float(a), float(b)] for a, b in bounds])
+        self.pad = int(pad)
+
+
+def fit(m, bounds, pad=10):
+    """地図を bounds([[南, 西], [北, 東]])の範囲に合わせる。表示後にも合わせ直す。"""
+    m.fit_bounds(bounds, padding=(pad, pad))
+    Refit(bounds, pad).add_to(m)
 
 
 def add_cells(m, df, value_col, label):
@@ -218,7 +260,7 @@ if mode == "month":
     top["rank"] = top.index + 1
     top["near"] = [nearest_city(a, b) for a, b in zip(top["plat"], top["plon"])]
     m = new_map([-28, 134], 4)
-    m.fit_bounds(AUSTRALIA)
+    fit(m, AUSTRALIA, pad=5)
     add_cells(m, sub[sub["index"] >= 5], "index", T["tip_month"])  # 指数5未満は省く
     add_numbers(m, top)
     st_folium(m, use_container_width=True, height=MAP_HEIGHT, returned_objects=[])
@@ -250,7 +292,9 @@ else:
         st.stop()
 
     m = new_map([lat0, lon0], 6)
-    folium.Marker([lat0, lon0], tooltip=T["city"](city)).add_to(m)
+    # 拠点の都市は赤い丸(番号の印と重ならないよう、ピンではなく小さな丸にする)
+    folium.CircleMarker([lat0, lon0], radius=7, color="#c0392b", weight=3, fill=True,
+                        fill_color="#ffffff", fill_opacity=1, tooltip=T["city"](city)).add_to(m)
     top, n, y0, y1 = with_record(top, list(weights), presence)
     top = with_points(top, points)
     top["rank"] = top.index + 1
@@ -259,7 +303,7 @@ else:
     # 拠点の都市と上位10か所が、すべて画面に収まるように縮尺を合わせる
     lats = list(top["plat"]) + [lat0]
     lons = list(top["plon"]) + [lon0]
-    m.fit_bounds([[min(lats), min(lons)], [max(lats), max(lons)]], padding=(20, 20))
+    fit(m, [[min(lats), min(lons)], [max(lats), max(lons)]], pad=20)
     st_folium(m, use_container_width=True, height=MAP_HEIGHT, returned_objects=[])
 
     st.subheader(T["best"])
@@ -282,6 +326,9 @@ else:
             else:
                 shown = cond.copy()
                 shown["outlook"] = shown["outlook"].map(T["outlook"])
+                # スマホの幅に収めるため、日付は「11/24」の形にし、うねり(波の一部)の列は省く
+                shown["date"] = pd.to_datetime(shown["date"]).dt.strftime("%m/%d")
+                shown = shown.drop(columns=["swell_m"], errors="ignore")
                 st.dataframe(shown.rename(columns=T["cols"]), hide_index=True)
                 wp = cond.attrs.get("wave_point")
                 if wp and (wp[0], wp[1]) != (r["glat"], r["glon"]):

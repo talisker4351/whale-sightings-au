@@ -430,7 +430,7 @@ if mode == "month":
 else:
     city = st.selectbox(T["base_city"], list(CITIES), format_func=T["city"],
                                 key="city")
-    max_km = st.slider(T["max_km"], 50, 1500, 300, step=50, key="max_km")
+    max_km = st.slider(T["max_km"], 50, 500, 300, step=50, key="max_km")   # 最大500km(普通の旅行で動ける範囲)
     st.caption(T["max_km_note"])
     today = dt.date.today()
     dates = st.date_input(

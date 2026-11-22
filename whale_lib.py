@@ -10,6 +10,7 @@ import requests
 CITIES = {
     "Sydney": (-33.87, 151.21),
     "Brisbane": (-27.47, 153.03),
+    "Gold Coast": (-28.02, 153.40),
     "Hervey Bay": (-25.29, 152.85),
     "Cairns": (-16.92, 145.77),
     "Melbourne": (-37.81, 144.96),
@@ -26,7 +27,6 @@ TOWNS = {
     **CITIES,
     "Coffs Harbour": (-30.30, 153.11),
     "Byron Bay": (-28.64, 153.61),
-    "Gold Coast": (-28.02, 153.40),
     "Point Lookout": (-27.43, 153.54),
     "Sunshine Coast": (-26.68, 153.12),
     "Port Macquarie": (-31.43, 152.91),

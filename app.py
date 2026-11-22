@@ -44,22 +44,38 @@ TEXT = {
         "month": "Month",
         "month_name": lambda m: dt.date(2000, m, 1).strftime("%B"),
         "top10": lambda m: f"Top 10 spots in {dt.date(2000, m, 1):%B}",
-        "tip_month": lambda r: f"Index {r['index']:.0f} | sighted in {r['years']} years",
+        "tip_month": lambda r: f"Index {r['index']:.0f} | seen in {r['years']} years",
         "base_city": "Base city",
-        "max_km": "Max distance from the city (km, straight line)",
+        "max_km": "How far from your base? (km)",
+        "max_km_note": "Straight-line distance. Driving distance will be longer.",
         "dates": "Travel dates",
         "pick_two": "Pick both a start date and an end date.",
         "no_spots": "No spots within that distance. Try a larger distance.",
-        "tip_trip": lambda r: f"Score {r['score']:.0f} | sighted in {r['years']} years | {r['km']:.0f} km from base",
+        "tip_trip": lambda r: (f"Score {r['score']:.0f} | seen in {r['years']} years | "
+                               f"{r['km']:.0f} km from base"),
         "km_col": lambda c: f"km from {c}",
-        "rank_note": lambda what: (f"Spots are ranked by a {what} that predicts how easy it is to spot whales at "
-                                   "that time, based on past sightings, season and sea surface temperature. "
-                                   "\"Years sighted\" is the number of years with at least one actual "
-                                   "sighting at that spot and time. Spots that rank high on both are the "
-                                   "most reliable picks."),
+        # 見出しと表の間に出す、短い説明(半角スペース2つ+\n で改行)
+        "explain_month": lambda mon, n: (
+            "Index: closer to 100 = easier to spot (predicted from past sightings, season "
+            "and sea temperature; 100 is the best)  \n"
+            f"Years seen this season: in how many of the {n} years whales were recorded "
+            f"near this spot in {mon}"),
+        "explain_trip": lambda mon, n: (
+            "Score: closer to 100 = easier to spot (the index adjusted to your trip dates)  \n"
+            f"Years seen this season: in how many of the {n} years whales were recorded "
+            f"near this spot in {mon}"),
+        "months_join": lambda ms: " or ".join(dt.date(2000, m, 1).strftime("%B") for m in ms),
+        "years_fmt": "%d",
+        "rank_note": lambda what: (f"Spots are ranked by the {what}, predicted from past sightings, season "
+                                   "and sea surface temperature. Spots that are also high on \"Years seen "
+                                   "this season\" are the most reliable picks."),
         "what_month": "spotting index", "what_trip": "score",
-        "record_note": lambda n, y0, y1: (f"Years sighted: in how many of the {n} years from {y0} to {y1} "
-                                          "at least one sighting was recorded at that spot in those months."),
+        "record_note": lambda n, y0, y1: (f"Years seen this season: in how many of the {n} years from {y0} "
+                                          f"to {y1} at least one sighting was recorded in that area (about "
+                                          "25 km square) in those months. A year without records does not "
+                                          "mean there were no whales; nobody may have reported them."),
+        "trip_note": ("The score combines the index of each month in your trip, weighted by the "
+                      "number of days (e.g. 25 Nov to 4 Dec = 6 days of November and 4 of December)."),
         "best": "Best spots for your trip",
         "forecast": "Sea conditions forecast (top 3 spots)",
         "near": lambda i, near: f"**{i}. near {near}**",
@@ -68,18 +84,18 @@ TEXT = {
         "rule": ("Wave and wind are daily maximums. Outlook is a rule of thumb from wave height "
                  "and wind, not a validated model."),
         "later": f"Forecasts appear when your trip starts within {FORECAST_DAYS} days.",
-        "note": ("Index (0-100, best spot of the month = 100) and score show the relative ease "
-                 "of spotting whales estimated from past sighting records and sea surface temperature. They are not encounter probabilities. "
+        "note": ("Index (0-100; the best spot and month of the year = 100) and score show the "
+                 "relative ease of spotting whales estimated from past sighting records and sea "
+                 "surface temperature. They are not encounter probabilities. "
                  "Records cluster where observers are. Sources: Atlas of Living Australia (sightings), "
                  "NOAA OISST v2.1 (sea surface temperature), Open-Meteo (forecasts)."),
         # 列名はスマホの幅に収まるよう短くする(意味は「数字の見方」で説明する)
-        "cols": {"rank": "Rank", "years": "Years sighted",
+        "cols": {"rank": "Rank", "years": "Years seen this season",
                  "glat": "Latitude", "glon": "Longitude",
                  "index": "Index", "n_records": "Records",
                  "near": "Town", "score": "Score", "km": "km",
                  "records": "Records", "date": "Date", "wave_m": "Wave (m)",
                  "swell_m": "Swell (m)", "wind_kmh": "Wind (km/h)", "outlook": "Outlook"},
-        "years_val": lambda k, n: f"{k} of {n}",          # 例: 11 of 26
         "outlook": {"Good": "Good", "Fair": "Fair", "Poor": "Poor", "No data": "No data"},
         "city": lambda c: c,
     },
@@ -93,21 +109,33 @@ TEXT = {
         "month": "月",
         "month_name": lambda m: f"{m}月",
         "top10": lambda m: f"{m}月の見やすい場所 トップ10",
-        "tip_month": lambda r: f"指数 {r['index']:.0f}|目撃された年 {r['years']}",
+        "tip_month": lambda r: f"指数 {r['index']:.0f}|この時期に見られた年 {r['years']}年",
         "base_city": "拠点の都市",
-        "max_km": "拠点からの最大距離(km、直線)",
+        "max_km": "拠点から何kmまで探しますか？",
+        "max_km_note": "地図上のまっすぐな距離です。車での道のりは、これより長くなります。",
         "dates": "旅行の期間",
         "pick_two": "開始日と終了日の両方を選んでください。",
         "no_spots": "その距離の範囲に候補がありません。距離を広げてください。",
-        "tip_trip": lambda r: f"スコア {r['score']:.0f}|目撃された年 {r['years']}|拠点から{r['km']:.0f} km",
+        "tip_trip": lambda r: (f"スコア {r['score']:.0f}|この時期に見られた年 {r['years']}年|"
+                               f"拠点から{r['km']:.0f} km"),
         "km_col": lambda c: f"{c}から(km)",
-        "rank_note": lambda what: (f"順位は、過去の目撃記録・季節・海面水温から、その時期のクジラの見つけやすさを"
-                                   f"予測した{what}で決めています。「目撃された年」は、その場所・時期に実際に"
-                                   "クジラが目撃された年の数です。両方が高い場所ほど、確かな候補です。"),
+        "explain_month": lambda mon, n: (
+            "指数：100に近いほど見つけやすい(過去の記録・季節・海水温から予測。最高は100)  \n"
+            f"この時期に見られた年：{n}年間で、{mon}にこの近くで目撃があった年の数"),
+        "explain_trip": lambda mon, n: (
+            "スコア：100に近いほど見つけやすい(指数を旅行の期間に合わせたもの)  \n"
+            f"この時期に見られた年：{n}年間で、{mon}にこの近くで目撃があった年の数"),
+        "months_join": lambda ms: "か".join(f"{m}月" for m in ms),   # 例: 11月か12月
+        "years_fmt": "%d年",                                          # 表の「11年」
+        "rank_note": lambda what: (f"順位は、過去の目撃記録・季節・海面水温から予測した{what}の高い順です。"
+                                   "「この時期に見られた年」も多い場所ほど、確かな候補です。"),
         "what_month": "見やすさ指数", "what_trip": "スコア",
-        "record_note": lambda n, y0, y1: (f"目撃された年: {y0}〜{y1}年の{n}年間のうち、その場所・その時期に"
-                                          "1件でも目撃記録があった年の数です。"
-                                          f"「{n}年中11年」なら、{n}年のうち11年は見られたという意味です。"),
+        "record_note": lambda n, y0, y1: (f"この時期に見られた年: {y0}〜{y1}年の{n}年間のうち、その場所"
+                                          "(約25km四方)・その月に1件でも目撃記録があった年の数です。"
+                                          "記録がない年は、クジラがいなかったとは限りません"
+                                          "(誰も記録しなかった年も含みます)。"),
+        "trip_note": ("スコアは、旅行の期間に含まれる各月の指数を、日数の割合で合わせたものです"
+                      "(例: 11/25〜12/4なら、11月を6日分・12月を4日分)。"),
         "best": "旅行におすすめの場所",
         "forecast": "海の状況の予報(上位3か所)",
         "near": lambda i, near: f"**{i}. {near} 付近**",
@@ -115,17 +143,16 @@ TEXT = {
         "wave_point": lambda p: f"波のデータは、最も近い海上の地点({p[0]}, {p[1]})のものです。",
         "rule": "波と風は、その日の最大値です。見通しは、波の高さと風からの目安です。検証したモデルではありません。",
         "later": f"出発が{FORECAST_DAYS}日以内になると、予報が表示されます。",
-        "note": ("指数(0〜100。その月にいちばん見つけやすい場所が100)とスコアは、"
+        "note": ("指数(0〜100。1年でいちばん見つけやすい場所・月が100)とスコアは、"
                  "過去の目撃記録と海面水温から推定した、クジラの見つけやすさの目安です。"
                  "遭遇する確率ではありません。記録は観察する人が多い場所に集まりやすい点に注意してください。"
                  "出典: Atlas of Living Australia(目撃記録)、NOAA OISST v2.1(海面水温)、Open-Meteo(予報)。"),
-        "cols": {"rank": "順位", "years": "目撃された年",
+        "cols": {"rank": "順位", "years": "この時期に見られた年",
                  "glat": "緯度", "glon": "経度",
                  "index": "指数", "n_records": "記録数",
                  "near": "近くの町", "score": "スコア", "km": "km",
                  "records": "記録数", "date": "日付", "wave_m": "波(m)",
                  "swell_m": "うねり(m)", "wind_kmh": "風(km/h)", "outlook": "見通し"},
-        "years_val": lambda k, n: f"{n}年中{k}年",        # 例: 26年中11年
         "outlook": {"Good": "良い", "Fair": "ふつう", "Poor": "悪い", "No data": "データなし"},
         "city": lambda c: {"Sydney": "シドニー", "Brisbane": "ブリスベン", "Hervey Bay": "ハービーベイ",
                            "Cairns": "ケアンズ", "Melbourne": "メルボルン", "Hobart": "ホバート",
@@ -234,12 +261,20 @@ def add_numbers(m, df):
     return m
 
 
-def with_record(df, months, presence, fmt):
-    """過去の実績(目撃された年の数)を、言語に合わせた形(「26年中11年」「11 of 26」)で付ける。"""
+def with_record(df, months, presence):
+    """この時期に見られた年の数を、数字のまま付ける(表で横棒グラフにするため)。"""
     seen, n, y0, y1 = track_record(presence, months)
     df = df.merge(seen, on=["glat", "glon"], how="left")
-    df["years"] = [fmt(int(k), n) for k in df["years_seen"].fillna(0)]
+    df["years"] = df["years_seen"].fillna(0).astype(int)
     return df, n, y0, y1
+
+
+def show_table(df, cols, n):
+    """表を出す。「この時期に見られた年」は、最大n年の横棒グラフにする。"""
+    name = cols["years"]
+    st.dataframe(df.rename(columns=cols), hide_index=True,
+                 column_config={name: st.column_config.ProgressColumn(
+                     name, format=T["years_fmt"], min_value=0, max_value=n)})
 
 
 pred = load_pred()
@@ -257,8 +292,7 @@ mode = st.radio(T["mode"], ["month", "trip"], horizontal=True,
 if mode == "month":
     month = st.selectbox(T["month"], list(range(1, 13)), index=6,
                                  format_func=T["month_name"], key="month")
-    sub, n, y0, y1 = with_record(pred[pred["month"] == month], [month], presence,
-                                  T["years_val"])
+    sub, n, y0, y1 = with_record(pred[pred["month"] == month], [month], presence)
     sub = with_points(sub, points)
     top = sub.sort_values("index", ascending=False).head(10).reset_index(drop=True)
     top["rank"] = top.index + 1
@@ -269,8 +303,8 @@ if mode == "month":
     add_numbers(m, top)
     st_folium(m, use_container_width=True, height=MAP_HEIGHT, returned_objects=[])
     st.subheader(T["top10"](month))
-    st.dataframe(top[["rank", "near", "index", "years"]].rename(columns=T["cols"]),
-                 hide_index=True)
+    st.caption(T["explain_month"](T["month_name"](month), n))
+    show_table(top[["rank", "near", "index", "years"]], T["cols"], n)
     with st.expander(T["how_to"]):
         st.write(T["rank_note"](T["what_month"]))
         st.write(T["record_note"](n, y0, y1))
@@ -280,6 +314,7 @@ else:
     city = st.selectbox(T["base_city"], list(CITIES), format_func=T["city"],
                                 key="city")
     max_km = st.slider(T["max_km"], 50, 1500, 300, step=50, key="max_km")
+    st.caption(T["max_km_note"])
     today = dt.date.today()
     dates = st.date_input(
         T["dates"], (today + dt.timedelta(days=3), today + dt.timedelta(days=9)), key="dates")
@@ -299,7 +334,7 @@ else:
     # 拠点の都市は赤い丸(番号の印と重ならないよう、ピンではなく小さな丸にする)
     folium.CircleMarker([lat0, lon0], radius=7, color="#c0392b", weight=3, fill=True,
                         fill_color="#ffffff", fill_opacity=1, tooltip=T["city"](city)).add_to(m)
-    top, n, y0, y1 = with_record(top, list(weights), presence, T["years_val"])
+    top, n, y0, y1 = with_record(top, list(weights), presence)
     top = with_points(top, points)
     top["rank"] = top.index + 1
     add_cells(m, top, "score", T["tip_trip"])
@@ -311,12 +346,14 @@ else:
     st_folium(m, use_container_width=True, height=MAP_HEIGHT, returned_objects=[])
 
     st.subheader(T["best"])
+    trip_months = list(dict.fromkeys(pd.date_range(start, end).month))   # 旅行の順(12月→1月)に並べる
+    st.caption(T["explain_trip"](T["months_join"](trip_months), n))
     cols = {**T["cols"], "km": T["km_col"](T["city"](city))}   # 距離の列名に拠点の都市名を入れる
-    st.dataframe(top[["rank", "near", "score", "years", "km"]]
-                    .rename(columns=cols), hide_index=True)
+    show_table(top[["rank", "near", "score", "years", "km"]], cols, n)
     with st.expander(T["how_to"]):
         st.write(T["rank_note"](T["what_trip"]))
         st.write(T["record_note"](n, y0, y1))
+        st.write(T["trip_note"])
         st.write(T["note"])
 
     st.subheader(T["forecast"])

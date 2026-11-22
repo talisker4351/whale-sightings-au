@@ -6,6 +6,7 @@
 """
 import datetime as dt
 import json
+import os
 
 import folium
 import pandas as pd
@@ -251,22 +252,34 @@ TEXT = {
 }
 
 
-@st.cache_data
-def load_pred() -> pd.DataFrame:
-    return pd.read_csv("data/pred_month.csv")
-
-
-@st.cache_data
-def load_presence() -> pd.DataFrame:
-    return pd.read_csv("data/presence.csv")
-
-
-@st.cache_data
-def load_points() -> pd.DataFrame:
+def file_stamp(path: str) -> float:
+    """ファイルの更新時刻。データを差し替えたら、覚えておいた古い表を使わず読み直すために使う。"""
     try:
-        return pd.read_csv("data/cell_points.csv")
-    except FileNotFoundError:            # まだ無いときは、マス目の中心に印を置く
+        return os.path.getmtime(path)
+    except OSError:
+        return 0.0
+
+
+# 読み込んだ表は覚えておく(st.cache_data)。ただし覚える目印に「ファイルの更新時刻」を入れて、
+# GitHub でCSVだけを差し替えたときも、新しいファイルを読み直すようにする
+@st.cache_data
+def load_csv(path: str, stamp: float) -> pd.DataFrame:
+    return pd.read_csv(path)
+
+
+def load_pred() -> pd.DataFrame:
+    return load_csv("data/pred_month.csv", file_stamp("data/pred_month.csv"))
+
+
+def load_presence() -> pd.DataFrame:
+    return load_csv("data/presence.csv", file_stamp("data/presence.csv"))
+
+
+def load_points() -> pd.DataFrame:
+    path = "data/cell_points.csv"
+    if not os.path.exists(path):         # まだ無いときは、マス目の中心に印を置く
         return pd.DataFrame(columns=["glat", "glon", "plat", "plon"])
+    return load_csv(path, file_stamp(path))
 
 
 @st.cache_data(ttl=3600)

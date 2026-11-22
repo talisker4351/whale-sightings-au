@@ -46,8 +46,9 @@ Two checks shaped the cleaning:
    and sea surface temperature.
 4. Train on years before 2020 and test on 2020 onwards.
 5. Predict for every cell and month with climatological (average) sea surface temperature.
-6. Place each map marker at the average position of the records in its cell. If that falls on land
-   (about 10% of cells), move it to the nearest point about 1.5 km offshore using Natural Earth land polygons.
+6. Place each map marker at the average position of the records in its cell. If that falls on land or
+   within 1.5 km of it, such as in a river (about 19% of cells), move it to the nearest open water
+   at least 1.5 km from land, using Natural Earth land polygons.
 
 ## Results
 | Model | Test AUC |

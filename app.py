@@ -47,6 +47,14 @@ WHALE_BODY = (
     'stroke-linecap="round"/></g>'
 )
 
+# タップしたときに吹く、大きめの潮(自動の潮吹きとは別の部品)
+TAP_SPOUT = ('<g class="wh-tapspout"><path d="M22 14 C19 5 14 2 10 1 M22 14 C22 4 22 1 22 -2 '
+             'M22 14 C25 5 30 2 34 1" stroke="#85B7EB" stroke-width="2.5" fill="none" '
+             'stroke-linecap="round"/></g>')
+FLIP = '<g transform="translate(80,0) scale(-1,1)">'
+TAP_KEYS = ("{0%{opacity:0;transform:scale(.4,.2)}25%{opacity:1;transform:scale(1.3,1.5)}"
+            "100%{opacity:0;transform:scale(1.4,1.8)}}")
+
 # A: タイトルの下の細い海の帯を、クジラが左から右へ泳ぐ(約14秒で横切り、途中で潮を吹く)
 WHALE_BANNER = (
     "<style>"
@@ -63,15 +71,25 @@ WHALE_BANNER = (
     "@keyframes wh-bob{50%{transform:translateY(-4px) rotate(2deg)}}"
     "@keyframes wh-spout{0%,38%{opacity:0;transform:scaleY(.2)}42%{opacity:1;transform:scaleY(1)}"
     "50%,100%{opacity:0;transform:scaleY(1.1)}}"
+    # タップ: 見えないチェックボックスを、帯(label)のタップで入・切する。
+    # 入と切で別の名前の動き(中身は同じ)を当てるので、タップのたびに潮吹きが最初から再生される
+    ".wh-sea{display:block;cursor:pointer;-webkit-tap-highlight-color:transparent}"
+    ".wh-tap{position:absolute;opacity:0;pointer-events:none}"
+    ".wh-sea .wh-tapspout{transform-box:view-box;transform-origin:22px 14px;opacity:0}"
+    ".wh-tap:checked~.wh-swim .wh-tapspout{animation:wh-tapa .9s ease-out}"
+    ".wh-tap:not(:checked)~.wh-swim .wh-tapspout{animation:wh-tapb .9s ease-out}"
+    "@keyframes wh-tapa" + TAP_KEYS + "@keyframes wh-tapb" + TAP_KEYS +
     "@media (prefers-reduced-motion: reduce){.wh-wave,.wh-swim,.wh-swim svg,.wh-sea .wh-spout"
     "{animation:none}.wh-swim{left:40%}}"
     "</style>"
-    '<div class="wh-sea" aria-hidden="true">'
-    '<svg class="wh-wave" viewBox="0 0 800 14" preserveAspectRatio="none">'
+    '<label class="wh-sea" title="Tap the whale!">'
+    '<input type="checkbox" class="wh-tap" aria-label="Make the whale spout">'
+    '<svg class="wh-wave" viewBox="0 0 800 14" preserveAspectRatio="none" aria-hidden="true">'
     '<path d="M0 7 Q25 0 50 7' + "".join(f" T{x} 7" for x in range(100, 801, 50)) +
     ' V14 H0Z" fill="#378ADD"/></svg>'
-    '<div class="wh-swim"><svg viewBox="0 0 80 40" width="80" height="40">' + WHALE_BODY +
-    "</svg></div></div>"
+    '<span class="wh-swim" style="display:block"><svg viewBox="0 0 80 40" width="80" height="40" '
+    'aria-hidden="true">' + WHALE_BODY.replace(FLIP, FLIP + TAP_SPOUT) +
+    "</svg></span></label>"
 )
 
 
@@ -80,7 +98,11 @@ def map_whale(rank):
     delay = (rank - 1) * 1.3
     return (
         "<style>"
-        ".wh-mini{position:absolute;left:16px;top:-14px;width:30px;height:15px;pointer-events:none}"
+        ".wh-mini{position:absolute;left:16px;top:-14px;width:30px;height:15px;cursor:pointer;"
+        "overflow:visible}"
+        ".wh-mini .wh-tapspout{transform-box:view-box;transform-origin:22px 14px;opacity:0}"
+        ".wh-mini .wh-tapspout.go{animation:wh-mtap .9s ease-out}"   # .go は TapSpout が付け外しする
+        "@keyframes wh-mtap" + TAP_KEYS +
         ".wh-mini .wh-spout{transform-box:view-box;transform-origin:22px 14px;opacity:0;"
         "animation:wh-mspout 4s ease-out infinite}"
         "@keyframes wh-mspout{0%,60%{opacity:0;transform:scaleY(.2)}70%{opacity:1;transform:scaleY(1)}"
@@ -88,8 +110,11 @@ def map_whale(rank):
         "@media (prefers-reduced-motion: reduce){.wh-mini .wh-spout{animation:none;opacity:1}}"
         "</style>"
         f'<svg class="wh-mini" viewBox="0 0 80 40">'
-        + WHALE_BODY.replace('class="wh-spout"', f'class="wh-spout" style="animation-delay:{delay}s"')
-                    .replace('stroke="#85B7EB" stroke-width="2"', 'stroke="#ffffff" stroke-width="4"')  # 地図の海でも見えるよう白く太く
+        + WHALE_BODY.replace(FLIP, FLIP + TAP_SPOUT)
+                    .replace('class="wh-spout"', f'class="wh-spout" style="animation-delay:{delay}s"')
+                    .replace('stroke="#85B7EB" stroke-width="2"', 'stroke="#ffffff" stroke-width="4"')
+                    .replace('stroke="#85B7EB" stroke-width="2.5"', 'stroke="#ffffff" stroke-width="5"')
+        # ↑ 地図の水色の海でも見えるよう、潮を白く太くする
         + "</svg>"
     )
 
@@ -296,6 +321,30 @@ class Refit(folium.MacroElement):
         self.pad = int(pad)
 
 
+class TapSpout(folium.MacroElement):
+    """地図の1〜3位の番号かクジラをタップすると、そのクジラが潮を吹く JavaScript を足す。"""
+    _template = Template("""
+{% macro script(this, kwargs) %}
+(function () {
+  var target = {{ this._parent.get_name() }};
+  target.getContainer().addEventListener("click", function (e) {
+    var badge = e.target.closest ? e.target.closest(".wh-badge") : null;
+    if (!badge) return;
+    var spout = badge.querySelector(".wh-tapspout");
+    if (!spout) return;
+    spout.classList.remove("go");
+    void spout.getBoundingClientRect();
+    spout.classList.add("go");
+  }, true);
+})();
+{% endmacro %}
+""")
+
+    def __init__(self):
+        super().__init__()
+        self._name = "TapSpout"
+
+
 def fit(m, bounds, pad=10):
     """地図を bounds([[南, 西], [北, 東]])の範囲に合わせる。表示後にも合わせ直す。"""
     m.fit_bounds(bounds, padding=(pad, pad))
@@ -317,13 +366,14 @@ def add_numbers(m, df):
     """上位の場所に、表の順位と同じ番号を地図上に書く。"""
     for _, r in df.iterrows():
         rank = int(r["rank"])
-        html = ('<div style="position:relative;width:22px;height:22px;border-radius:11px;'
+        html = ('<div class="wh-badge" style="position:relative;width:22px;height:22px;border-radius:11px;'
                 'background:#0b3d45;color:#fff;font:bold 12px sans-serif;display:flex;'
                 'align-items:center;justify-content:center;border:2px solid #fff">'
                 f'{rank}{map_whale(rank) if rank <= 3 else ""}</div>')   # 1〜3位にはクジラを添える
         folium.Marker([r["plat"], r["plon"]],
                       icon=folium.DivIcon(html=html, icon_size=(22, 22), icon_anchor=(11, 11))
                       ).add_to(m)
+    TapSpout().add_to(m)          # タップで潮吹き
     return m
 
 

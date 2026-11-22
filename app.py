@@ -31,6 +31,69 @@ MAP_HEIGHT = 380   # 地図の高さ(px)。幅は画面に合わせる
 AUSTRALIA = [[-44, 112], [-10, 154]]   # 月ごとの地図で、最初に収める範囲
 
 # ---------------------------------------------------------------
+# 泳ぐクジラ(飾り)。絵は自作のSVG、動きはCSSのアニメーションだけ(JavaScriptなし)。
+# 「動きを減らす」設定の人には、動かさずに表示する。
+# ---------------------------------------------------------------
+# クジラの絵。左右反転(scale(-1,1))して、頭を右(進む方向)に向けている
+WHALE_BODY = (
+    '<g transform="translate(80,0) scale(-1,1)">'
+    '<g class="wh-spout"><path d="M22 14 C20 6 16 3 13 2 M22 14 C22 5 22 2 22 0 M22 14 C24 6 28 3 31 2" '
+    'stroke="#85B7EB" stroke-width="2" fill="none" stroke-linecap="round"/></g>'
+    '<path d="M6 26 C6 16 22 12 38 14 C52 16 60 22 66 24 L76 16 C77 22 75 27 70 29 L76 36 '
+    'C70 35 66 33 63 31 C50 37 22 38 10 33 C7 31 6 29 6 26Z" fill="#185FA5"/>'
+    '<path d="M10 30 C22 34 44 34 58 30" stroke="#B5D4F4" stroke-width="1.5" fill="none"/>'
+    '<circle cx="16" cy="24" r="1.6" fill="#E6F1FB"/>'
+    '<path d="M30 31 C33 36 38 38 42 37" stroke="#0C447C" stroke-width="2" fill="none" '
+    'stroke-linecap="round"/></g>'
+)
+
+# A: タイトルの下の細い海の帯を、クジラが左から右へ泳ぐ(約14秒で横切り、途中で潮を吹く)
+WHALE_BANNER = (
+    "<style>"
+    ".wh-sea{position:relative;height:56px;overflow:hidden;border-radius:12px;"
+    "background:rgba(55,138,221,0.15);margin:0 0 0.5rem}"
+    ".wh-wave{position:absolute;left:0;bottom:0;width:200%;height:14px;opacity:.5;"
+    "animation:wh-flow 8s linear infinite}"
+    ".wh-swim{position:absolute;bottom:8px;left:-90px;width:80px;animation:wh-swim 14s linear infinite}"
+    ".wh-swim svg{display:block;animation:wh-bob 2.4s ease-in-out infinite}"
+    ".wh-sea .wh-spout{transform-box:view-box;transform-origin:22px 14px;opacity:0;"
+    "animation:wh-spout 14s ease-out infinite}"
+    "@keyframes wh-flow{to{transform:translateX(-50%)}}"
+    "@keyframes wh-swim{to{left:110%}}"
+    "@keyframes wh-bob{50%{transform:translateY(-4px) rotate(2deg)}}"
+    "@keyframes wh-spout{0%,38%{opacity:0;transform:scaleY(.2)}42%{opacity:1;transform:scaleY(1)}"
+    "50%,100%{opacity:0;transform:scaleY(1.1)}}"
+    "@media (prefers-reduced-motion: reduce){.wh-wave,.wh-swim,.wh-swim svg,.wh-sea .wh-spout"
+    "{animation:none}.wh-swim{left:40%}}"
+    "</style>"
+    '<div class="wh-sea" aria-hidden="true">'
+    '<svg class="wh-wave" viewBox="0 0 800 14" preserveAspectRatio="none">'
+    '<path d="M0 7 Q25 0 50 7' + "".join(f" T{x} 7" for x in range(100, 801, 50)) +
+    ' V14 H0Z" fill="#378ADD"/></svg>'
+    '<div class="wh-swim"><svg viewBox="0 0 80 40" width="80" height="40">' + WHALE_BODY +
+    "</svg></div></div>"
+)
+
+
+def map_whale(rank):
+    """B: 地図の1〜3位の番号の横に置く小さなクジラ。数秒おきに潮を吹く(順位ごとに時間をずらす)。"""
+    delay = (rank - 1) * 1.3
+    return (
+        "<style>"
+        ".wh-mini{position:absolute;left:16px;top:-14px;width:30px;height:15px;pointer-events:none}"
+        ".wh-mini .wh-spout{transform-box:view-box;transform-origin:22px 14px;opacity:0;"
+        "animation:wh-mspout 4s ease-out infinite}"
+        "@keyframes wh-mspout{0%,60%{opacity:0;transform:scaleY(.2)}70%{opacity:1;transform:scaleY(1)}"
+        "85%,100%{opacity:0;transform:scaleY(1.1)}}"
+        "@media (prefers-reduced-motion: reduce){.wh-mini .wh-spout{animation:none;opacity:1}}"
+        "</style>"
+        f'<svg class="wh-mini" viewBox="0 0 80 40">'
+        + WHALE_BODY.replace('class="wh-spout"', f'class="wh-spout" style="animation-delay:{delay}s"')
+                    .replace('stroke="#85B7EB" stroke-width="2"', 'stroke="#ffffff" stroke-width="4"')  # 地図の海でも見えるよう白く太く
+        + "</svg>"
+    )
+
+# ---------------------------------------------------------------
 # 画面に出す言葉(英語と日本語)。言葉を直したいときは、ここだけを直す
 # ---------------------------------------------------------------
 TEXT = {
@@ -253,9 +316,11 @@ def add_cells(m, df, value_col, label):
 def add_numbers(m, df):
     """上位の場所に、表の順位と同じ番号を地図上に書く。"""
     for _, r in df.iterrows():
-        html = ('<div style="width:22px;height:22px;border-radius:11px;background:#0b3d45;'
-                'color:#fff;font:bold 12px sans-serif;display:flex;align-items:center;'
-                f'justify-content:center;border:2px solid #fff">{int(r["rank"])}</div>')
+        rank = int(r["rank"])
+        html = ('<div style="position:relative;width:22px;height:22px;border-radius:11px;'
+                'background:#0b3d45;color:#fff;font:bold 12px sans-serif;display:flex;'
+                'align-items:center;justify-content:center;border:2px solid #fff">'
+                f'{rank}{map_whale(rank) if rank <= 3 else ""}</div>')   # 1〜3位にはクジラを添える
         folium.Marker([r["plat"], r["plon"]],
                       icon=folium.DivIcon(html=html, icon_size=(22, 22), icon_anchor=(11, 11))
                       ).add_to(m)
@@ -285,6 +350,7 @@ lang = st.radio("Language / 言語", ["English", "日本語"], horizontal=True)
 T = TEXT[lang]
 
 st.title(T["title"])
+st.markdown(WHALE_BANNER, unsafe_allow_html=True)   # A: タイトルの下を泳ぐクジラ
 st.caption(T["intro"])
 mode = st.radio(T["mode"], ["month", "trip"], horizontal=True,
                         format_func=lambda k: T["mode_month"] if k == "month" else T["mode_trip"],

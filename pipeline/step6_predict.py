@@ -2,10 +2,14 @@
 
 テストのAUCが最も高いモデルを使う(ベースラインに負けたら警告する)。
 予測には、水温の平年値(sst_clim.csv)を使う。
+予測するのは、2000年〜昨年に一度でも記録があるマスだけ(2026-11-24 修正)。
+    それ以外のマス(2000年より前か、今年にしか記録がないマス)は、学習していないか、
+    アプリで「この時期に見られた年」を示せないため、予測しない。
 
 使い方:
     python pipeline/step6_predict.py          # 自動で選ぶ
     python pipeline/step6_predict.py logit    # モデルを指定する
+    (このあと必ず step7_snap_to_sea.py を実行する)
 
 出力:
     data/cell_points.csv glat, glon, plat, plon(マス目の中の実際の記録の平均位置。地図に印を置く場所)
@@ -42,7 +46,21 @@ def main(forced: str | None = None) -> None:
     model = joblib.load(MODELS / f"{name}.joblib")
     print("使うモデル:", name)
 
+    # 過去の実績: どのマスで、どの年のどの月に記録があったか。
+    # いちばん新しい年は途中で、記録の登録も追いついていないので除く(全部そろった年だけを使う)
+    s = pd.read_csv(DATA / "sightings.csv")
+    last_full = int(s["year"].max()) - 1
+    pres = (s[s["year"].between(YEAR_MIN, last_full)]
+              [["glat", "glon", "year", "month"]].drop_duplicates())
+
     clim = pd.read_csv(DATA / "sst_clim.csv").dropna(subset=["sst"])
+    # 予測するのは、2000年〜昨年に一度でも記録があるマスだけ。
+    # それ以外のマスは学習していない(または実績を示せない)ので、予測が当てにならない
+    n_all = clim[["glat", "glon"]].drop_duplicates().shape[0]
+    clim = clim.merge(pres[["glat", "glon"]].drop_duplicates(), on=["glat", "glon"])
+    n_use = clim[["glat", "glon"]].drop_duplicates().shape[0]
+    print("予測するマス", n_all, "->", n_use, f"({YEAR_MIN}〜{last_full}年に記録がない {n_all - n_use} マスを除く)")
+
     grid = add_features(clim)
     grid["p"] = model.predict_proba(grid[FEATURES])[:, 1]
     grid["index"] = (grid["p"] / grid["p"].max() * 100).round(1)
@@ -53,20 +71,13 @@ def main(forced: str | None = None) -> None:
 
     out = grid[["glat", "glon", "month", "p", "index", "n_records"]]
     out.to_csv(DATA / "pred_month.csv", index=False)
-
-    # 過去の実績: どのマスで、どの年のどの月に記録があったか。
-    # いちばん新しい年は途中で、記録の登録も追いついていないので除く(全部そろった年だけを使う)
-    s = pd.read_csv(DATA / "sightings.csv")
-    last_full = int(s["year"].max()) - 1
-    pres = (s[s["year"].between(YEAR_MIN, last_full)]
-              [["glat", "glon", "year", "month"]].drop_duplicates())
     pres.to_csv(DATA / "presence.csv", index=False)
 
     # 地図の印は、マス目の中心ではなく、実際の記録の平均位置に置く(中心だと陸の上に出ることがあるため)
     pts = (s.groupby(["glat", "glon"])[["lat", "lon"]].mean().round(4)
              .rename(columns={"lat": "plat", "lon": "plon"}).reset_index())
     pts.to_csv(DATA / "cell_points.csv", index=False)
-    print("保存:", DATA / "cell_points.csv", len(pts), "行")
+    print("保存:", DATA / "cell_points.csv", len(pts), "行(このあと step7 で海へ寄せる)")
     print("保存:", DATA / "presence.csv", len(pres), "行", f"({YEAR_MIN}〜{last_full}年)")
     print("保存:", DATA / "pred_month.csv", len(out), "行")
 

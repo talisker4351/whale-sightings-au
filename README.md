@@ -45,7 +45,9 @@ Two checks shaped the cleaning:
 3. Features: latitude, longitude, month as sine and cosine, their interactions with latitude,
    and sea surface temperature.
 4. Train on years before 2020 and test on 2020 onwards.
-5. Predict for every cell and month with climatological (average) sea surface temperature.
+5. Predict every month for each cell with at least one record from 2000 to last year (929 of 1,167 cells),
+   using climatological (average) sea surface temperature. Cells recorded only before 2000 or only this year
+   are left out: they were either outside the training data or have no track record the app could show.
 6. Place each map marker at the average position of the records in its cell. If that falls on land or
    within 1.5 km of it, such as in a river (about 19% of cells), move it to the nearest open water
    at least 1.5 km from land, using Natural Earth land polygons.

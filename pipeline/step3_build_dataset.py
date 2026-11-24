@@ -1,6 +1,7 @@
 """v1a: 「いた(1)・いなかった(0)」の学習用データを作る。
 
 考え方(ここが最も大事な設計判断):
+    使う年は2000年〜昨年(いちばん新しい年は途中なので除く)。
     記録は「いた」しかないので、「いなかった」を自分で決める必要がある。
     ここでは、一度でも記録があるマスを「人が見ている場所」とみなし、
     そのマスの各年・各月に記録があれば1、なければ0とする。
@@ -24,7 +25,11 @@ from features import add_features  # noqa: E402  (同じフォルダ)
 
 def main() -> None:
     s = pd.read_csv(DATA / "sightings.csv")
-    s = s[s["year"] >= YEAR_MIN]
+    # いちばん新しい年は途中(まだ来ていない月も「記録なし=0」になる)なので使わない。
+    # 2000年〜昨年の、全部そろった年だけで学習・評価する(2026-11-24 修正)
+    last_full = int(s["year"].max()) - 1
+    s = s[s["year"].between(YEAR_MIN, last_full)]
+    print("使う年", YEAR_MIN, "〜", last_full)
     sst = pd.read_csv(DATA / "sst_cell_month.csv")
 
     seen = (s.groupby(["glat", "glon", "year", "month"])

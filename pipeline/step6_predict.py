@@ -1,6 +1,9 @@
 """v1b→v2: マス目×月ごとの予測を作り、アプリ用に保存する。
 
-テストのAUCが最も高いモデルを使う(ベースラインに負けたら警告する)。
+テストのAUCが最も高いモデルを選ぶ(ベースラインに負けたら警告する)。
+選んだモデルと同じ設定で、2000年〜昨年の全部の年を学習し直してから予測する(2026-11-24 追加)。
+    テストの成績は step4・5 で、2019年までで学習したモデルを使って測ったもの。
+    設定と作り方を確かめたあとに、最近の年の傾向も取り込むため、全部の年で学習し直す。
 予測には、水温の平年値(sst_clim.csv)を使う。
 予測するのは、2000年〜昨年に一度でも記録があるマスだけ(2026-11-24 修正)。
     それ以外のマス(2000年より前か、今年にしか記録がないマス)は、学習していないか、
@@ -12,6 +15,7 @@
     (このあと必ず step7_snap_to_sea.py を実行する)
 
 出力:
+    models/<モデル名>_full.joblib  全部の年で学習し直したモデル
     data/cell_points.csv glat, glon, plat, plon(マス目の中の実際の記録の平均位置。地図に印を置く場所)
     data/presence.csv    glat, glon, year, month(記録があったマス・年・月。アプリの「過去の実績」に使う)
     data/pred_month.csv  glat, glon, month, p, index, n_records
@@ -24,6 +28,7 @@ from pathlib import Path
 
 import joblib
 import pandas as pd
+from sklearn.base import clone
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from config import DATA, FEATURES, MODELS, REPORTS, YEAR_MIN
@@ -43,8 +48,15 @@ def choose_model(metrics: dict, forced: str | None) -> str:
 def main(forced: str | None = None) -> None:
     metrics = json.loads((REPORTS / "metrics.json").read_text())
     name = choose_model(metrics, forced)
-    model = joblib.load(MODELS / f"{name}.joblib")
+    tested = joblib.load(MODELS / f"{name}.joblib")
     print("使うモデル:", name)
+
+    # 同じ設定で、全部の年(2000年〜昨年。step3 で作った dataset.csv の全行)を学習し直す
+    data = pd.read_csv(DATA / "dataset.csv")
+    model = clone(tested).fit(data[FEATURES], data["y"])
+    joblib.dump(model, MODELS / f"{name}_full.joblib")
+    print("全部の年で学習し直した:", int(data["year"].min()), "〜", int(data["year"].max()), "年",
+          len(data), "行 ->", MODELS / f"{name}_full.joblib")
 
     # 過去の実績: どのマスで、どの年のどの月に記録があったか。
     # いちばん新しい年は途中で、記録の登録も追いついていないので除く(全部そろった年だけを使う)

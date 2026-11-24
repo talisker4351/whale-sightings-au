@@ -40,11 +40,13 @@ Two checks shaped the cleaning:
 ## Method
 1. Count records on a 0.25 degree grid (about 25 km) by month.
 2. Build presence/absence data: a grid cell with at least one record is treated as "observed";
-   each observed cell, year (2000 onwards) and month is 1 if there is a record, else 0
-   (303,968 rows, 1.4% positive).
+   each observed cell, year (2000 to last year) and month is 1 if there is a record, else 0
+   (289,848 rows, 1.4% positive). The current year is left out because it is incomplete.
 3. Features: latitude, longitude, month as sine and cosine, their interactions with latitude,
    and sea surface temperature.
-4. Train on years before 2020 and test on 2020 onwards.
+4. Train on 2000-2019 and test on 2020-2025. LightGBM settings (leaves, minimum rows per leaf, number of trees)
+   were tuned without touching the test years: train on 2000-2014, validate on 2015-2019, early stopping.
+   After testing, the chosen model is retrained with the same settings on all years (2000-2025) for the app.
 5. Predict every month for each cell with at least one record from 2000 to last year (929 of 1,167 cells),
    using climatological (average) sea surface temperature. Cells recorded only before 2000 or only this year
    are left out: they were either outside the training data or have no track record the app could show.
@@ -55,16 +57,19 @@ Two checks shaped the cleaning:
 ## Results
 | Model | Test AUC |
 |---|---|
-| Baseline (past frequency per cell and month) | 0.780 |
-| Logistic regression | 0.765 |
-| LightGBM | **0.886** |
+| Baseline (past frequency per cell and month) | 0.781 |
+| Logistic regression | 0.771 |
+| LightGBM (tuned) | **0.885** |
+| LightGBM (untuned, for reference) | 0.889 |
 
 - Because only 1.4% of rows are positive, accuracy would be misleading, so models are compared by AUC.
 - Logistic regression lost to the baseline: a single linear equation cannot capture
   differences between individual bays and survey sites. Its coefficients still show
   the expected seasonal peak in July and August.
-- LightGBM beat the baseline by about 0.11 because it can combine location, season and
+- LightGBM beat the baseline by about 0.10 because it can combine location, season and
   temperature, and borrow information from nearby cells.
+- Tuning did not improve the test score (0.885 vs 0.889 untuned); the difference is small.
+  The tuned settings were kept because they were chosen on validation years, not on the test.
 - The index rewards consistency rather than volume. A spot near Augusta (Western Australia)
   had the most July records (298) but they were concentrated in a few years, so it ranks
   below Sydney, which has records in most years.
@@ -74,13 +79,14 @@ Two checks shaped the cleaning:
   so the index shows the relative ease of spotting whales, not the probability of an encounter.
 - The test used actual sea temperatures for each year, while the app uses average temperatures,
   so real-world performance may be lower than the test AUC.
-- Records for the latest year may be incomplete.
+- The predicted values are not calibrated probabilities: on the test years, actual rates were
+  higher than predicted (about 2-3 times in the upper groups), so the app shows a relative index only.
 - Distances are straight lines, not travel distances.
 - The forecast outlook (Good / Fair / Poor) is a rule of thumb, not a validated model.
 
 ## Next steps
 - Re-evaluate the models using average sea temperatures, as the app does.
-- Check calibration: do spots with a 10% prediction see records about 10% of the time?
+- Calibrate the predictions (for example with isotonic regression) so they can be read as rates.
 - Reduce observer bias with target-group background points (records of other marine species).
 - Add bathymetry and other species, such as southern right whales.
 
